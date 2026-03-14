@@ -1,0 +1,33 @@
+# Agent 编排
+langgraph>=0.2.0
+langchain-core>=0.3.0
+
+# 记忆
+mem0ai>=0.1.0
+
+# 向量数据库
+qdrant-client>=1.9.0
+
+# RAG
+rank-bm25>=0.2.2
+jieba>=0.42.1
+
+# LLM API
+openai>=1.0.0
+
+# 爬虫
+httpx>=0.27.0
+playwright>=1.40.0
+
+# 数据处理
+pydantic>=2.0.0
+
+# 前端
+streamlit>=1.35.0
+
+# 工具
+python-dotenv>=1.0.0
+
+# 测试
+pytest>=7.4.0
+pytest-mock>=3.10.0
