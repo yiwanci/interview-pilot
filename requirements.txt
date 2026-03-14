@@ -6,7 +6,8 @@ langchain-core>=0.3.0
 mem0ai>=0.1.0
 
 # 向量数据库
-qdrant-client>=1.9.0
+qdrant-client==1.9.1
+protobuf==5.29.6
 
 # RAG
 rank-bm25>=0.2.2

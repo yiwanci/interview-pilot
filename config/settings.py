@@ -9,7 +9,6 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "qwen")
 
 load_dotenv()
 
@@ -45,7 +44,7 @@ LLM_CONFIGS = {
         "embedding_model": "embedding-3",
     },
     "deepseek": {
-        "base_url": "https://api.deepseek.com/",
+        "base_url": "https://api.deepseek.com/v2",
         "api_key": os.getenv("DEEPSEEK_API_KEY", ""),
         "model": "deepseek-chat",
         "embedding_model": "deepseek-embedding",},
@@ -58,6 +57,19 @@ def get_llm_config():
 # Mem0 配置
 def get_mem0_config():
     llm_cfg = get_llm_config()
+
+    # 根据 provider 设置 embedding 维度
+    provider = LLM_PROVIDER
+    embed_config = {
+        "model": llm_cfg["embedding_model"],
+        "api_key": llm_cfg["api_key"],
+        "openai_base_url": llm_cfg["base_url"],
+    }
+
+    # 通义千问 embedding v3 需要指定维度
+    if provider == "qwen" and "v3" in llm_cfg["embedding_model"]:
+        embed_config["dimensions"] = 1024
+
     return {
         "llm": {
             "provider": "openai",
@@ -69,11 +81,7 @@ def get_mem0_config():
         },
         "embedder": {
             "provider": "openai",
-            "config": {
-                "model": llm_cfg["embedding_model"],
-                "api_key": llm_cfg["api_key"],
-                "openai_base_url": llm_cfg["base_url"],
-            }
+            "config": embed_config,
         },
         "vector_store": {
             "provider": "qdrant",

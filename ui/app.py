@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide",
 )
 
-from agent import run_agent
+from agent import run_agent_with_trace
 from memory import MemoryManager
 from storage import SQLiteStore
 
@@ -117,17 +117,27 @@ def add_user_message(content: str):
         "role": "user",
         "content": content
     })
-    
-    # 调用 Agent
-    with st.spinner("思考中..."):
-        try:
-            response = run_agent(content)
-        except Exception as e:
-            response = f"抱歉，处理时出错了：{e}"
+
+    trace = []
+    status = st.status("正在处理请求...", expanded=True)
+
+    def on_progress(event: dict):
+        trace.append(event)
+        status.write(f"{event['elapsed_ms']}ms · {event['step']}：{event['detail']}")
+
+    try:
+        result = run_agent_with_trace(content, progress_callback=on_progress)
+        response = result.get("response", "抱歉，我没有理解你的意思。")
+        trace = result.get("trace", trace)
+        status.update(label="处理完成", state="complete", expanded=False)
+    except Exception as e:
+        response = f"抱歉，处理时出错了：{e}"
+        status.update(label="处理失败", state="error", expanded=True)
     
     st.session_state.messages.append({
         "role": "assistant",
-        "content": response
+        "content": response,
+        "trace": trace,
     })
     
     st.rerun()
@@ -148,6 +158,11 @@ def render_chat():
         else:
             with st.chat_message("assistant"):
                 st.write(content)
+                trace = message.get("trace", [])
+                if trace:
+                    with st.expander("查看运行过程", expanded=False):
+                        for event in trace:
+                            st.caption(f"{event['elapsed_ms']}ms · {event['step']}：{event['detail']}")
     
     # 输入框
     if prompt := st.chat_input("输入消息...（试试「考考我」或「讲讲 Redis」）"):

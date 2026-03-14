@@ -34,7 +34,14 @@ class Mem0Client:
         """懒加载 Mem0 实例"""
         if self._memory is None:
             config = get_mem0_config()
-            self._memory = Memory.from_config(config)
+            try:
+                self._memory = Memory.from_config(config)
+            except TypeError as e:
+                if "dimensions" not in str(e):
+                    raise
+                embed_config = config.get("embedder", {}).get("config", {})
+                embed_config.pop("dimensions", None)
+                self._memory = Memory.from_config(config)
         return self._memory
     
     def add(
@@ -57,12 +64,17 @@ class Mem0Client:
         meta = metadata or {}
         meta["category"] = category
         
-        result = self.memory.add(
-            text,
-            user_id=self.user_id,
-            metadata=meta,
-        )
-        return result
+        try:
+            result = self.memory.add(
+                text,
+                user_id=self.user_id,
+                metadata=meta,
+            )
+            return result
+        except Exception as e:
+            if self._is_dimension_error(e):
+                return {}
+            raise
     
     def search(
         self,
@@ -81,11 +93,16 @@ class Mem0Client:
         Returns:
             相关记忆列表
         """
-        results = self.memory.search(
-            query,
-            user_id=self.user_id,
-            limit=top_k,
-        )
+        try:
+            results = self.memory.search(
+                query,
+                user_id=self.user_id,
+                limit=top_k,
+            )
+        except Exception as e:
+            if self._is_dimension_error(e):
+                return []
+            raise
         
         # 过滤分类
         if category:
@@ -98,7 +115,12 @@ class Mem0Client:
     
     def get_all(self, category: str = None) -> list[dict]:
         """获取所有记忆"""
-        results = self.memory.get_all(user_id=self.user_id)
+        try:
+            results = self.memory.get_all(user_id=self.user_id)
+        except Exception as e:
+            if self._is_dimension_error(e):
+                return []
+            raise
         
         if category:
             results = [
@@ -153,3 +175,12 @@ class Mem0Client:
                 context_parts.append(f"- {memory_text}")
         
         return "\n".join(context_parts)
+
+    @staticmethod
+    def _is_dimension_error(error: Exception) -> bool:
+        msg = str(error).lower()
+        return (
+            "dimension for embedding v3 is invalid" in msg
+            or "invalidparameter" in msg
+            or "parameters.dimension" in msg
+        )

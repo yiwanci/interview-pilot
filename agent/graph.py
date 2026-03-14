@@ -1,6 +1,7 @@
 """
 LangGraph 主流程图
 """
+import time
 from langgraph.graph import StateGraph, END
 
 from .state import AgentState
@@ -85,6 +86,72 @@ def get_graph():
     return _graph
 
 
+NODE_HANDLERS = {
+    "study": study_node,
+    "interview": interview_node,
+    "crawl": crawler_node,
+    "plan": plan_node,
+    "chat": chat_node,
+}
+
+
+def run_agent_with_trace(user_input: str, progress_callback=None) -> dict:
+    """
+    运行 Agent（返回执行过程）
+    
+    Returns:
+        {
+            "response": str,
+            "trace": list[dict],
+            "state": AgentState,
+        }
+    """
+    started = time.perf_counter()
+    trace = []
+
+    def add_event(step: str, detail: str):
+        event = {
+            "step": step,
+            "detail": detail,
+            "elapsed_ms": int((time.perf_counter() - started) * 1000),
+        }
+        trace.append(event)
+        if progress_callback:
+            progress_callback(event)
+
+    state = AgentState(
+        user_input=user_input,
+        intent="",
+        memory_context={},
+        rag_results=[],
+        response="",
+        should_update_memory=False,
+    )
+
+    add_event("开始", "接收用户输入")
+    add_event("路由", "识别用户意图")
+    state = router_node(state)
+
+    intent = state.get("intent", "chat")
+    node_name = route_by_intent(state)
+    add_event("路由结果", f"命中意图：{intent}")
+    add_event("执行", f"进入节点：{node_name}")
+
+    handler = NODE_HANDLERS.get(node_name, chat_node)
+    state = handler(state)
+
+    if state.get("error"):
+        add_event("异常", state.get("error", "未知错误"))
+    else:
+        add_event("完成", "已生成回复")
+
+    return {
+        "response": state.get("response", "抱歉，我没有理解你的意思。"),
+        "trace": trace,
+        "state": state,
+    }
+
+
 def run_agent(user_input: str) -> str:
     """
     运行 Agent
@@ -95,18 +162,5 @@ def run_agent(user_input: str) -> str:
     Returns:
         Agent 回复
     """
-    graph = get_graph()
-    
-    initial_state = AgentState(
-        user_input=user_input,
-        intent="",
-        memory_context={},
-        rag_results=[],
-        response="",
-        should_update_memory=False,
-    )
-    
-    # 运行图
-    result = graph.invoke(initial_state)
-    
-    return result.get("response", "抱歉，我没有理解你的意思。")
+    result = run_agent_with_trace(user_input)
+    return result["response"]
