@@ -30,29 +30,79 @@ QDRANT_COLLECTION = "interview_pilot"
 # LLM 配置（国产API，兼容OpenAI接口）
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "qwen")  # qwen / glm / deepseek
 
+# 统一 API Key（如果使用 codingplan 等聚合服务）
+UNIFIED_API_KEY = os.getenv("UNIFIED_API_KEY", "")
+
 LLM_CONFIGS = {
     "qwen": {
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "api_key": os.getenv("QWEN_API_KEY", ""),
+        "api_key": os.getenv("QWEN_API_KEY", UNIFIED_API_KEY),  # 优先用单独 Key，否则用统一 Key
         "model": "qwen3-max",
         "embedding_model": "text-embedding-v3",
     },
     "glm": {
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "api_key": os.getenv("GLM_API_KEY", ""),
+        "api_key": os.getenv("GLM_API_KEY", UNIFIED_API_KEY),
         "model": "glm-4-flash",
         "embedding_model": "embedding-3",
     },
     "deepseek": {
         "base_url": "https://api.deepseek.com/v2",
-        "api_key": os.getenv("DEEPSEEK_API_KEY", ""),
+        "api_key": os.getenv("DEEPSEEK_API_KEY", UNIFIED_API_KEY),
         "model": "deepseek-chat",
-        "embedding_model": "deepseek-embedding",},
+        "embedding_model": "deepseek-embedding",
+    },
 }
 
-def get_llm_config():
-    """获取当前LLM配置"""
-    return LLM_CONFIGS.get(LLM_PROVIDER, LLM_CONFIGS["qwen"])
+# 节点级 LLM 配置（从 .env 读取，默认全部使用 LLM_PROVIDER）
+NODE_LLM_CONFIG = {
+    "router": os.getenv("ROUTER_LLM_PROVIDER", LLM_PROVIDER),
+    "study": os.getenv("STUDY_LLM_PROVIDER", LLM_PROVIDER),
+    "interview": os.getenv("INTERVIEW_LLM_PROVIDER", LLM_PROVIDER),
+    "plan": os.getenv("PLAN_LLM_PROVIDER", LLM_PROVIDER),
+    "crawl": os.getenv("CRAWL_LLM_PROVIDER", LLM_PROVIDER),
+    "chat": os.getenv("CHAT_LLM_PROVIDER", LLM_PROVIDER),
+}
+
+# 多模态大模型配置（用于图片识别、面经分析等）
+MULTIMODAL_MODEL = os.getenv("MULTIMODAL_MODEL", "qwen-vl")
+
+# 多模态大模型映射（支持视觉）
+MULTIMODAL_CONFIGS = {
+    "qwen-vl": {
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api_key": os.getenv("QWEN_API_KEY", UNIFIED_API_KEY),
+        "model": "qwen-vl-max",  # 多模态大模型，支持图片识别
+    },
+    "qwen-vl-plus": {
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api_key": os.getenv("QWEN_API_KEY", UNIFIED_API_KEY),
+        "model": "qwen-vl-plus-max",
+    },
+    "glm-4v": {
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "api_key": os.getenv("GLM_API_KEY", UNIFIED_API_KEY),
+        "model": "glm-4v",
+    },
+}
+
+def get_llm_config(node_name: str = None):
+    """
+    获取 LLM 配置，支持节点级别
+
+    Args:
+        node_name: 节点名称（router/study/interview/plan/crawl/chat）
+                   如果为 None，使用全局 LLM_PROVIDER
+
+    Returns:
+        LLM 配置字典
+    """
+    # 如果指定节点，使用节点配置
+    if node_name:
+        provider = NODE_LLM_CONFIG.get(node_name, LLM_PROVIDER)
+    else:
+        provider = LLM_PROVIDER
+    return LLM_CONFIGS.get(provider, LLM_CONFIGS["qwen"])
 
 # Mem0 配置
 def get_mem0_config():
@@ -92,3 +142,25 @@ def get_mem0_config():
             }
         }
     }
+
+# 多模态大模型配置（用于图片识别、面经分析等）
+MULTIMODAL_MODEL = os.getenv("MULTIMODAL_MODEL", "qwen-vl")
+
+# 多模态大模型映射（支持视觉）
+MULTIMODAL_CONFIGS = {
+    "qwen-vl": {
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api_keyser": os.getenv("QWEN_API_KEY", UNIFIED_API_KEY),
+        "model": "qwen-vl-max",  # 多模态大模型，支持图片识别
+    },
+    "qwen-vl-plus": {
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api_keyser": os.getenv("QWEN_API_KEY", UNIFIED_API_KEY),
+        "model": "qwen-vl-plus-max",
+    },
+    "glm-4v": {
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "api_keyser": os.getenv("GLM_API_KEY", UNIFIED_API_KEY),
+        "model": "glm-4v",
+    },
+}

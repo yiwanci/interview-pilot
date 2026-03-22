@@ -36,6 +36,7 @@ class TestRouterNode:
         assert router._quick_match("搜集面经") == "crawl"
         assert router._quick_match("爬取小红书") == "crawl"
         assert router._quick_match("导入数据") == "crawl"
+        assert router._quick_match("应该是什么类型的JSON") == "crawl"
     
     def test_quick_match_plan(self, router):
         """快速匹配 - 计划意图"""
@@ -185,6 +186,36 @@ class TestCrawlerNode:
         assert crawler_node._is_company_query("字节跳动") == True
         assert crawler_node._is_company_query("阿里巴巴") == True
         assert crawler_node._is_company_query("Java") == False
+
+    def test_is_json_format_question(self, crawler_node):
+        assert crawler_node._is_json_format_question("应该是什么类型的JSON") == True
+
+
+class TestChatNode:
+    @pytest.fixture
+    def chat_node(self, mocker):
+        mocker.patch('agent.nodes.chat_node.OpenAI')
+        mock_mm = Mock()
+        mock_mm.get_user_name.return_value = ""
+        mock_mm.format_context_for_prompt.return_value = "测试上下文"
+        mocker.patch('agent.nodes.chat_node.MemoryManager', return_value=mock_mm)
+        from agent.nodes.chat_node import ChatNode
+        return ChatNode()
+
+    def test_extract_user_name(self, chat_node):
+        assert chat_node._extract_user_name("我叫卢鸿涛") == "卢鸿涛"
+
+    def test_chat_store_user_name(self, chat_node):
+        state = AgentState(user_input="我叫卢鸿涛", intent="chat")
+        result = chat_node(state)
+        chat_node.memory_manager.set_user_name.assert_called_once_with("卢鸿涛")
+        assert "记住啦" in result["response"]
+
+    def test_chat_query_user_name(self, chat_node):
+        chat_node.memory_manager.get_user_name.return_value = "卢鸿涛"
+        state = AgentState(user_input="我叫什么名字", intent="chat")
+        result = chat_node(state)
+        assert "卢鸿涛" in result["response"]
 
 
 def run_tests():

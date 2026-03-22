@@ -2,7 +2,6 @@
 Streamlit 前端界面
 """
 import streamlit as st
-from datetime import date
 
 # 设置页面必须在最前面
 st.set_page_config(
@@ -24,6 +23,12 @@ def init_session_state():
         st.session_state.memory_manager = MemoryManager()
     if "db" not in st.session_state:
         st.session_state.db = SQLiteStore()
+    if "session_id" not in st.session_state:
+        # 生成简单的会话ID（基于时间戳）
+        import time
+        st.session_state.session_id = f"session_{int(time.time())}"
+    if "conversation_history" not in st.session_state:
+        st.session_state.conversation_history = []
 
 
 def render_sidebar():
@@ -104,10 +109,6 @@ def render_sidebar():
             **学习计划**
             - 输入「今天学什么」
             - 输入「本周周报」
-            
-            **搜集面经**
-            - 输入「搜集小红书 Java 面经」
-            - 输入「抓取字节 LeetCode 题」
             """)
 
 
@@ -126,9 +127,22 @@ def add_user_message(content: str):
         status.write(f"{event['elapsed_ms']}ms · {event['step']}：{event['detail']}")
 
     try:
-        result = run_agent_with_trace(content, progress_callback=on_progress)
+        # 准备对话历史（排除刚刚添加的当前用户消息）
+        history = st.session_state.conversation_history.copy()
+
+        result = run_agent_with_trace(
+            user_input=content,
+            progress_callback=on_progress,
+            conversation_history=history,
+            session_id=st.session_state.session_id
+        )
         response = result.get("response", "抱歉，我没有理解你的意思。")
         trace = result.get("trace", trace)
+
+        # 更新对话历史
+        updated_history = result.get("updated_conversation_history", history)
+        st.session_state.conversation_history = updated_history
+
         status.update(label="处理完成", state="complete", expanded=False)
     except Exception as e:
         response = f"抱歉，处理时出错了：{e}"
@@ -138,6 +152,7 @@ def add_user_message(content: str):
         "role": "assistant",
         "content": response,
         "trace": trace,
+        "streamed": False,  # 标记为未流式显示
     })
     
     st.rerun()
@@ -157,7 +172,21 @@ def render_chat():
                 st.write(content)
         else:
             with st.chat_message("assistant"):
-                st.write(content)
+                # 检查消息是否已经流式显示过
+                if not message.get("streamed", False):
+                    # 流式显示效果
+                    def stream_text(text):
+                        import time
+                        for char in text:
+                            yield char
+                            time.sleep(0.01)  # 控制打字速度
+
+                    st.write_stream(stream_text(content))
+                    # 标记为已流式显示
+                    message["streamed"] = True
+                else:
+                    st.write(content)
+
                 trace = message.get("trace", [])
                 if trace:
                     with st.expander("查看运行过程", expanded=False):
@@ -229,38 +258,6 @@ def render_knowledge_tab():
         st.error(f"加载知识库失败：{e}")
 
 
-def render_import_tab():
-    """渲染导入标签页"""
-    st.subheader("📥 导入面经")
-    
-    st.markdown("""
-    ### 方式一：直接粘贴
-    将面经内容粘贴到下方文本框，点击导入。
-    """)
-    
-    content = st.text_area("面经内容", height=200, placeholder="粘贴面经内容...")
-    title = st.text_input("标题（可选）", placeholder="如：字节跳动一面")
-    
-    if st.button("导入", type="primary"):
-        if content:
-            add_user_message(f"导入面经：{title or '手动导入'}\n\n{content}")
-        else:
-            st.warning("请输入面经内容")
-    
-    st.divider()
-    
-    st.markdown("""
-    ### 方式二：使用爬虫
-    在对话框输入指令，如：
-    - 「搜集小红书 Java 面经」
-    - 「抓取字节 LeetCode 题」
-    
-    ### 方式三：MediaCrawler
-    使用 [MediaCrawler](https://github.com/NanmiCoder/MediaCrawler) 工具爬取小红书/抖音数据，
-    导出 JSON 后放到 `data/raw/` 目录。
-    """)
-
-
 def main():
     """主函数"""
     init_session_state()
@@ -269,7 +266,7 @@ def main():
     render_sidebar()
     
     # 主内容区 - 标签页
-    tab1, tab2, tab3 = st.tabs(["💬 对话", "📚 知识库", "📥 导入"])
+    tab1, tab2 = st.tabs(["💬 对话", "📚 知识库"])
     
     with tab1:
         render_chat()
@@ -277,9 +274,5 @@ def main():
     with tab2:
         render_knowledge_tab()
     
-    with tab3:
-        render_import_tab()
-
-
 if __name__ == "__main__":
     main()

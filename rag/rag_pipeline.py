@@ -16,17 +16,17 @@ from .reranker import get_reranker, BaseReranker
 class RAGPipeline:
     """
     RAG 完整流程
-    
+
     使用示例:
         rag = RAGPipeline()
-        
+
         # 入库
         rag.ingest(raw_document)
-        
+
         # 检索 + 生成
         answer = rag.query("Redis分布式锁怎么实现？", memory_context="用户学过Redis基础")
     """
-    
+
     def __init__(
         self,
         reranker_type: str = "none",
@@ -41,7 +41,8 @@ class RAGPipeline:
         )
         self.reranker: BaseReranker = get_reranker(reranker_type)
         self.use_hyde = use_hyde
-        
+        self.available = self.vector_store.available
+
         # LLM 客户端
         config = get_llm_config()
         self.llm_client = OpenAI(
@@ -96,36 +97,43 @@ class RAGPipeline:
         top_k: int = 5,
         domain: str = None,
         use_rerank: bool = True,
-    ) -> list[DocumentChunk]:
+    ) -> list:
         """
         检索相关文档
-        
+
         Args:
             query: 查询文本
             top_k: 返回数量
             domain: 过滤领域
             use_rerank: 是否使用重排序
-        
+
         Returns:
             相关文档列表
         """
-        # 1. HyDE 查询改写（可选）
-        search_query = query
-        if self.use_hyde:
-            search_query = self._hyde_transform(query)
-        
-        # 2. 混合检索
-        candidates = self.retriever.retrieve(
-            query=search_query,
-            top_k=top_k * 2 if use_rerank else top_k,
-            domain=domain,
-        )
-        
-        # 3. 重排序（可选）
-        if use_rerank and candidates:
-            candidates = self.reranker.rerank(query, candidates, top_k=top_k)
-        
-        return candidates[:top_k]
+        if not self.available:
+            return []
+
+        try:
+            # 1. HyDE 查询改写（可选）
+            search_query = query
+            if self.use_hyde:
+                search_query = self._hyde_transform(query)
+
+            # 2. 混合检索
+            candidates = self.retriever.retrieve(
+                query=search_query,
+                top_k=top_k * 2 if use_rerank else top_k,
+                domain=domain,
+            )
+
+            # 3. 重排序（可选）
+            if use_rerank and candidates:
+                candidates = self.reranker.rerank(query, candidates, top_k=top_k)
+
+            return candidates[:top_k]
+        except Exception as e:
+            print(f"[WARNING] RAG retrieve failed: {e}")
+            return []
     
     def _hyde_transform(self, query: str) -> str:
         """

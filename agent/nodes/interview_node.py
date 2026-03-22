@@ -18,21 +18,27 @@ from agent.prompts.interview_prompt import (
 class InterviewNode:
     """
     模拟面试节点
-    
+
     两种模式：
     1. 出题模式：根据薄弱点选题提问
     2. 评分模式：评估用户回答
     """
-    
+
     def __init__(self):
-        config = get_llm_config()
+        config = get_llm_config(node_name="interview")
         self.llm_client = OpenAI(
             api_key=config["api_key"],
             base_url=config["base_url"],
         )
         self.llm_model = config["model"]
         self.memory_manager = MemoryManager()
-        self.rag = RAGPipeline()
+        try:
+            self.rag = RAGPipeline()
+            self.rag_available = self.rag.available
+        except Exception as e:
+            print(f"[WARNING] RAG not available: {e}")
+            self.rag = None
+            self.rag_available = False
     
     def __call__(self, state: AgentState) -> AgentState:
         """面试节点处理"""
@@ -62,27 +68,31 @@ class InterviewNode:
         plan = self.memory_manager.get_today_plan()
         due_reviews = plan.get("due_reviews", [])
         weak_points = plan.get("weak_points", [])
-        
+
         # 合并并格式化
         all_points = due_reviews + weak_points
         if not all_points:
             state["response"] = "你目前没有待复习的知识点，要不先学点新内容？"
             return state
-        
+
         knowledge_str = "\n".join([
             f"- {kp.name}（掌握度：{kp.mastery_level:.0%}）"
             for kp in all_points[:10]
         ])
-        
-        # 2. 检索相关面试题
-        topics = [kp.name for kp in all_points[:3]]
+
+        # 2. 检索相关面试题（如果RAG可用）
         reference_questions = []
-        for topic in topics:
-            results = self.rag.retrieve(topic, top_k=2)
-            for r in results:
-                if hasattr(r, 'question') and r.question:
-                    reference_questions.append(r.question)
-        
+        if self.rag_available and self.rag:
+            try:
+                topics = [kp.name for kp in all_points[:3]]
+                for topic in topics:
+                    results = self.rag.retrieve(topic, top_k=2)
+                    for r in results:
+                        if hasattr(r, 'question') and r.question:
+                            reference_questions.append(r.question)
+            except Exception as e:
+                print(f"[WARNING] RAG retrieve failed: {e}")
+
         ref_str = "\n".join([f"- {q}" for q in reference_questions[:5]]) or "无"
         
         # 3. 生成问题
@@ -90,14 +100,35 @@ class InterviewNode:
             knowledge_points=knowledge_str,
             reference_questions=ref_str,
         )
-        
-        response = self.llm_client.chat.completions.create(
+
+        # 获取对话历史
+        conversation_history = state.get("conversation_history", [])
+
+        # 限制历史长度（保留最近20轮对话）
+        max_history_rounds = 20
+        if len(conversation_history) > max_history_rounds * 2:
+            conversation_history = conversation_history[-(max_history_rounds * 2):]
+
+        # 构建消息：历史对话 + 当前提示
+        messages = conversation_history.copy()  # 历史对话消息
+        messages.append({"role": "user", "content": prompt})
+
+        # 流式调用 LLM
+        stream = self.llm_client.chat.completions.create(
             model=self.llm_model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             temperature=0.7,
+            stream=True,
         )
-        
-        question = response.choices[0].message.content.strip()
+
+        # 收集流式响应
+        collected_content = ""
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                collected_content += content
+
+        question = collected_content.strip()
         
         state["selected_questions"] = [question]
         state["response"] = f"📝 面试问题：\n\n{question}\n\n请回答（回答后我会给你评分）："
@@ -107,20 +138,26 @@ class InterviewNode:
     def _evaluate_answer(self, state: AgentState) -> AgentState:
         """评估回答"""
         user_answer = state.get("user_input", "")
-        
+
         # 获取上一个问题（简化处理，实际应该从会话历史获取）
         selected = state.get("selected_questions", [])
         if not selected:
             state["response"] = "请先让我出一道题，输入「考考我」开始。"
             return state
-        
+
         question = selected[0]
-        
-        # 检索参考答案
-        rag_results = self.rag.retrieve(question, top_k=3)
-        reference_points = "\n".join([
-            f"- {r.content[:200]}" for r in rag_results
-        ]) or "无参考资料"
+
+        # 检索参考答案（如果RAG可用）
+        reference_points = "无参考资料"
+        if self.rag_available and self.rag:
+            try:
+                rag_results = self.rag.retrieve(question, top_k=3)
+                if rag_results:
+                    reference_points = "\n".join([
+                        f"- {r.content[:200]}" for r in rag_results
+                    ])
+            except Exception as e:
+                print(f"[WARNING] RAG retrieve failed: {e}")
         
         # 评估
         prompt = EVALUATE_ANSWER_PROMPT.format(
@@ -128,14 +165,35 @@ class InterviewNode:
             answer=user_answer,
             reference_points=reference_points,
         )
-        
-        response = self.llm_client.chat.completions.create(
+
+        # 获取对话历史
+        conversation_history = state.get("conversation_history", [])
+
+        # 限制历史长度（保留最近20轮对话）
+        max_history_rounds = 20
+        if len(conversation_history) > max_history_rounds * 2:
+            conversation_history = conversation_history[-(max_history_rounds * 2):]
+
+        # 构建消息：历史对话 + 当前提示
+        messages = conversation_history.copy()  # 历史对话消息
+        messages.append({"role": "user", "content": prompt})
+
+        # 流式调用 LLM
+        stream = self.llm_client.chat.completions.create(
             model=self.llm_model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             temperature=0.3,
+            stream=True,
         )
-        
-        evaluation = response.choices[0].message.content.strip()
+
+        # 收集流式响应
+        collected_content = ""
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                collected_content += content
+
+        evaluation = collected_content.strip()
         
         # 提取分数
         score = self._extract_score(evaluation)

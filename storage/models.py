@@ -66,6 +66,7 @@ class StudyLog:
 @dataclass
 class UserProfile:
     """用户画像"""
+    user_name: str = ""
     target_positions: list[str] = field(default_factory=list)   # 目标岗位
     target_companies: list[str] = field(default_factory=list)   # 目标公司
     tech_stack: list[str] = field(default_factory=list)         # 技术栈
@@ -109,3 +110,40 @@ class DocumentChunk:
     answer: str = ""
     company: str = ""
     position: str = ""
+
+
+@dataclass
+class Conversation:
+    """对话会话"""
+    id: str
+    title: str = "新对话"                    # 会话标题
+    user_name: str = ""                      # 关联用户名
+    session_id: str = ""                     # 会话标识（UI生成）
+    metadata: dict = field(default_factory=dict)  # 额外元数据
+
+    # 时间
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+    # 统计
+    message_count: int = 0                   # 消息总数
+    last_message: Optional[str] = None       # 最后一条消息摘要
+
+
+@dataclass
+class Message:
+    """对话消息"""
+    id: str
+    conversation_id: str                     # 关联会话ID
+    role: str                                # "user" 或 "assistant"
+    content: str                             # 消息内容
+    timestamp: datetime = field(default_factory=datetime.now)
+
+    # 元数据
+    session_id: str = ""                     # 会话标识
+    intent: str = ""                         # 意图类型（study/interview等）
+    response_time_ms: Optional[int] = None   # 响应时间（毫秒）
+    tokens_used: Optional[int] = None        # 消耗token数
+
+    # 跟踪信息（可选）
+    trace: list = field(default_factory=list)  # 执行跟踪信息

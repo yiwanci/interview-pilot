@@ -20,7 +20,7 @@ class PlanNode:
     """
     
     def __init__(self):
-        config = get_llm_config()
+        config = get_llm_config(node_name="plan")
         self.llm_client = OpenAI(
             api_key=config["api_key"],
             base_url=config["base_url"],
@@ -92,14 +92,35 @@ class PlanNode:
             weak_points=weak_str,
             recent_logs="最近3天学习记录（简化显示）",
         )
-        
-        response = self.llm_client.chat.completions.create(
+
+        # 获取对话历史
+        conversation_history = state.get("conversation_history", [])
+
+        # 限制历史长度（保留最近20轮对话）
+        max_history_rounds = 20
+        if len(conversation_history) > max_history_rounds * 2:
+            conversation_history = conversation_history[-(max_history_rounds * 2):]
+
+        # 构建消息：历史对话 + 当前提示
+        messages = conversation_history.copy()  # 历史对话消息
+        messages.append({"role": "user", "content": prompt})
+
+        # 流式调用 LLM
+        stream = self.llm_client.chat.completions.create(
             model=self.llm_model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             temperature=0.7,
+            stream=True,
         )
-        
-        plan_text = response.choices[0].message.content.strip()
+
+        # 收集流式响应
+        collected_content = ""
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                collected_content += content
+
+        plan_text = collected_content.strip()
         
         state["response"] = f"📅 今日学习计划\n\n{plan_text}"
         return state
@@ -122,14 +143,35 @@ class PlanNode:
             weekly_stats=stats_str,
             mastery_overview=mastery_str,
         )
-        
-        response = self.llm_client.chat.completions.create(
+
+        # 获取对话历史
+        conversation_history = state.get("conversation_history", [])
+
+        # 限制历史长度（保留最近20轮对话）
+        max_history_rounds = 20
+        if len(conversation_history) > max_history_rounds * 2:
+            conversation_history = conversation_history[-(max_history_rounds * 2):]
+
+        # 构建消息：历史对话 + 当前提示
+        messages = conversation_history.copy()  # 历史对话消息
+        messages.append({"role": "user", "content": prompt})
+
+        # 流式调用 LLM
+        stream = self.llm_client.chat.completions.create(
             model=self.llm_model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             temperature=0.7,
+            stream=True,
         )
-        
-        report_text = response.choices[0].message.content.strip()
+
+        # 收集流式响应
+        collected_content = ""
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                collected_content += content
+
+        report_text = collected_content.strip()
         
         state["response"] = f"📊 本周学习报告\n\n{report_text}"
         return state

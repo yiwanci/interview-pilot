@@ -240,6 +240,7 @@ class TestSQLiteStore:
     
     def test_user_profile(self, db):
         """用户画像"""
+        db.set_profile("user_name", "卢鸿涛")
         db.set_profile("target_positions", ["Java后端", "AI Agent"])
         db.set_profile("target_companies", ["字节", "阿里"])
         
@@ -247,6 +248,7 @@ class TestSQLiteStore:
         assert "Java后端" in positions
         
         profile = db.get_full_profile()
+        assert profile.user_name == "卢鸿涛"
         assert "字节" in profile.target_companies
     
     def test_stats(self, db):
@@ -340,11 +342,13 @@ class TestMemoryManager:
     def test_get_context_for_agent(self, mm):
         """获取 Agent 上下文"""
         mm.learn_new_topic("Redis", "database", "java_backend")
+        mm.set_user_name("卢鸿涛")
         mm.set_user_profile(target_positions=["Java后端"])
         
         context = mm.get_context_for_agent("Redis")
         
         assert "user_profile" in context
+        assert context["user_profile"]["user_name"] == "卢鸿涛"
         assert "related_knowledge" in context
 
 

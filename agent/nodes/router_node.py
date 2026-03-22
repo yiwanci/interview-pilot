@@ -34,7 +34,7 @@ class RouterNode:
 只返回意图类型（study/interview/crawl/plan/chat）："""
 
     def __init__(self):
-        config = get_llm_config()
+        config = get_llm_config(node_name="router")
         self.llm_client = OpenAI(
             api_key=config["api_key"],
             base_url=config["base_url"],
@@ -58,6 +58,11 @@ class RouterNode:
     def _quick_match(self, text: str) -> str:
         """快速规则匹配"""
         text_lower = text.lower()
+
+        if "json" in text_lower:
+            json_help_keywords = ["类型", "格式", "样例", "示例", "模板", "导入", "面经"]
+            if any(kw in text for kw in json_help_keywords):
+                return "crawl"
         
         # 面试相关
         interview_keywords = ["考考我", "模拟面试", "来道题", "出题", "面试题", "测试一下"]

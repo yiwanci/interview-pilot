@@ -1,5 +1,11 @@
-from .base_crawler import BaseCrawler
-from .xiaohongshu_crawler import XiaohongshuCrawler
-from .douyin_crawler import DouyinCrawler
-from .leetcode_crawler import LeetCodeCrawler
+"""
+Crawler 模块 - 仅通过 MCP 调用
+"""
 from .data_cleaner import DataCleaner
+from .mcp_wrapper import MCPCrawlerWrapper, create_mcp_crawler
+
+__all__ = [
+    "DataCleaner",
+    "MCPCrawlerWrapper",
+    "create_mcp_crawler",
+]

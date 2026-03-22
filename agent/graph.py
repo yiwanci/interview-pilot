@@ -2,6 +2,7 @@
 LangGraph 主流程图
 """
 import time
+from datetime import datetime
 from langgraph.graph import StateGraph, END
 
 from .state import AgentState
@@ -13,6 +14,14 @@ from .nodes import (
     crawler_node,
     chat_node,
 )
+try:
+    from storage.conversation_store import ConversationStore
+    from storage.models import Message
+    HAS_CONVERSATION_STORE = True
+except ImportError:
+    HAS_CONVERSATION_STORE = False
+    ConversationStore = None
+    Message = None
 
 
 def route_by_intent(state: AgentState) -> str:
@@ -95,15 +104,28 @@ NODE_HANDLERS = {
 }
 
 
-def run_agent_with_trace(user_input: str, progress_callback=None) -> dict:
+def run_agent_with_trace(
+    user_input: str,
+    progress_callback=None,
+    conversation_history: list = None,
+    session_id: str = ""
+) -> dict:
     """
     运行 Agent（返回执行过程）
-    
+
+    Args:
+        user_input: 用户输入
+        progress_callback: 进度回调函数
+        conversation_history: 对话历史，格式 [{"role": "user/assistant", "content": "..."}, ...]
+        session_id: 会话标识
+
     Returns:
         {
             "response": str,
             "trace": list[dict],
             "state": AgentState,
+            "updated_conversation_history": list,  # 更新后的对话历史
+            "session_id": str,
         }
     """
     started = time.perf_counter()
@@ -119,9 +141,15 @@ def run_agent_with_trace(user_input: str, progress_callback=None) -> dict:
         if progress_callback:
             progress_callback(event)
 
+    # 初始化对话历史
+    if conversation_history is None:
+        conversation_history = []
+
     state = AgentState(
         user_input=user_input,
         intent="",
+        conversation_history=conversation_history,
+        session_id=session_id,
         memory_context={},
         rag_results=[],
         response="",
@@ -145,22 +173,100 @@ def run_agent_with_trace(user_input: str, progress_callback=None) -> dict:
     else:
         add_event("完成", "已生成回复")
 
+    # 更新对话历史（添加本轮对话）
+    response = state.get("response", "抱歉，我没有理解你的意思。")
+    updated_history = conversation_history.copy() if conversation_history else []
+
+    # 添加用户输入和助手响应
+    updated_history.append({"role": "user", "content": user_input})
+    updated_history.append({"role": "assistant", "content": response})
+
+    # 限制历史长度（保留最近100轮对话）
+    max_history = 100
+    if len(updated_history) > max_history * 2:  # 每轮包含user和assistant两条
+        updated_history = updated_history[-(max_history * 2):]
+
+    # 持久化对话到数据库（如果可用）
+    if HAS_CONVERSATION_STORE and session_id:
+        try:
+            store = ConversationStore()
+
+            # 查找或创建会话
+            user_conversations = store.get_user_conversations(user_name="", limit=20)
+            conversation = None
+            for conv in user_conversations:
+                if conv.session_id == session_id:
+                    conversation = conv
+                    break
+
+            if not conversation:
+                # 创建新会话
+                conversation_id = store.create_conversation(
+                    title="新对话",
+                    user_name="",  # 暂时留空，未来可关联用户
+                    session_id=session_id,
+                    metadata={"created_from": "agent"}
+                )
+                conversation = store.get_conversation(conversation_id)
+
+            # 计算响应时间
+            response_time_ms = int((time.perf_counter() - started) * 1000)
+
+            # 添加用户消息
+            user_message = Message(
+                id="",
+                conversation_id=conversation.id,
+                role="user",
+                content=user_input,
+                session_id=session_id,
+                intent=state.get("intent", "chat"),
+                response_time_ms=None,  # 用户消息无响应时间
+                tokens_used=None,
+                timestamp=datetime.now(),
+                trace=[]
+            )
+            store.add_message(user_message)
+
+            # 添加助手消息
+            assistant_message = Message(
+                id="",
+                conversation_id=conversation.id,
+                role="assistant",
+                content=response,
+                session_id=session_id,
+                intent=state.get("intent", "chat"),
+                response_time_ms=response_time_ms,
+                tokens_used=None,  # 可以后续添加token计数
+                timestamp=datetime.now(),
+                trace=trace
+            )
+            store.add_message(assistant_message)
+        except Exception as e:
+            # 持久化失败不应影响主流程
+            add_event("持久化警告", f"对话保存失败: {str(e)}")
+
     return {
-        "response": state.get("response", "抱歉，我没有理解你的意思。"),
+        "response": response,
         "trace": trace,
         "state": state,
+        "updated_conversation_history": updated_history,
+        "session_id": session_id,
     }
 
 
 def run_agent(user_input: str) -> str:
     """
     运行 Agent
-    
+
     Args:
         user_input: 用户输入
-    
+
     Returns:
         Agent 回复
     """
-    result = run_agent_with_trace(user_input)
+    result = run_agent_with_trace(
+        user_input=user_input,
+        conversation_history=[],
+        session_id=""
+    )
     return result["response"]

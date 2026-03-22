@@ -12,6 +12,57 @@ from config import SQLITE_DB_PATH
 from .models import KnowledgePoint, StudyLog, UserProfile
 
 
+def _parse_datetime(dt_str: Optional[str]) -> Optional[datetime]:
+    """解析datetime字符串，支持多种格式"""
+    if not dt_str:
+        return None
+
+    # 尝试ISO格式
+    try:
+        return datetime.fromisoformat(dt_str)
+    except (ValueError, AttributeError):
+        pass
+
+    # 尝试SQLite格式 (YYYY-MM-DD HH:MM:SS)
+    try:
+        return datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, AttributeError):
+        pass
+
+    # 尝试其他常见格式
+    formats = [
+        "%Y-%m-%dT%H:%M:%S",  # ISO without microseconds
+        "%Y-%m-%dT%H:%M:%S.%f",  # ISO with microseconds
+        "%Y-%m-%d %H:%M:%S.%f",  # SQLite with microseconds
+    ]
+
+    for fmt in formats:
+        try:
+            return datetime.strptime(dt_str, fmt)
+        except (ValueError, AttributeError):
+            continue
+
+    # 如果都无法解析，返回None
+    return None
+
+
+def _parse_date(date_str: Optional[str]) -> Optional[date]:
+    """解析date字符串"""
+    if not date_str:
+        return None
+
+    # 尝试解析为datetime然后提取date部分
+    dt = _parse_datetime(date_str)
+    if dt:
+        return dt.date()
+
+    # 直接解析date格式
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except (ValueError, AttributeError):
+        return None
+
+
 class SQLiteStore:
     def __init__(self, db_path=None):
         self.db_path = db_path or SQLITE_DB_PATH
@@ -97,7 +148,9 @@ class SQLiteStore:
                 kp.id, kp.name, kp.category, kp.domain,
                 json.dumps(kp.tags, ensure_ascii=False),
                 kp.difficulty, kp.ease_factor, kp.interval_days,
-                kp.repetitions, kp.mastery_level, kp.next_review_at, kp.created_at
+                kp.repetitions, kp.mastery_level,
+                kp.next_review_at.isoformat() if kp.next_review_at else None,
+                kp.created_at.isoformat() if kp.created_at else None
             ))
         return kp.id
     
@@ -123,7 +176,9 @@ class SQLiteStore:
                 WHERE id = ?
             """, (
                 kp.ease_factor, kp.interval_days, kp.repetitions,
-                kp.mastery_level, kp.last_review_at, kp.next_review_at,
+                kp.mastery_level,
+                kp.last_review_at.isoformat() if kp.last_review_at else None,
+                kp.next_review_at.isoformat() if kp.next_review_at else None,
                 json.dumps(kp.mem0_memory_ids), json.dumps(kp.related_qa_ids),
                 kp.id
             ))
@@ -202,9 +257,9 @@ class SQLiteStore:
             interval_days=row["interval_days"],
             repetitions=row["repetitions"],
             mastery_level=row["mastery_level"],
-            last_review_at=row["last_review_at"],
-            next_review_at=row["next_review_at"],
-            created_at=row["created_at"],
+            last_review_at=_parse_datetime(row["last_review_at"]),
+            next_review_at=_parse_datetime(row["next_review_at"]),
+            created_at=_parse_datetime(row["created_at"]),
             mem0_memory_ids=json.loads(row["mem0_memory_ids"] or "[]"),
             related_qa_ids=json.loads(row["related_qa_ids"] or "[]"),
         )
@@ -223,7 +278,9 @@ class SQLiteStore:
                  score, llm_score, user_score, summary)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                log.id, log.date, log.knowledge_id, log.activity_type,
+                log.id,
+                log.date.date().isoformat() if log.date else None,
+                log.knowledge_id, log.activity_type,
                 log.duration_min, log.score, log.llm_score, log.user_score, log.summary
             ))
         return log.id
@@ -248,7 +305,7 @@ class SQLiteStore:
         """Row转StudyLog"""
         return StudyLog(
             id=row["id"],
-            date=row["date"],
+            date=_parse_date(row["date"]),
             knowledge_id=row["knowledge_id"],
             activity_type=row["activity_type"],
             duration_min=row["duration_min"],
@@ -256,7 +313,7 @@ class SQLiteStore:
             llm_score=row["llm_score"],
             user_score=row["user_score"],
             summary=row["summary"],
-            created_at=row["created_at"],
+            created_at=_parse_datetime(row["created_at"]),
         )
     
     # ============ 用户画像操作 ============
@@ -267,7 +324,7 @@ class SQLiteStore:
             conn.execute("""
                 INSERT OR REPLACE INTO user_profile (key, value, updated_at)
                 VALUES (?, ?, ?)
-            """, (key, json.dumps(value, ensure_ascii=False), datetime.now()))
+            """, (key, json.dumps(value, ensure_ascii=False), datetime.now().isoformat()))
     
     def get_profile(self, key: str, default=None):
         """获取用户画像"""
@@ -283,6 +340,7 @@ class SQLiteStore:
     def get_full_profile(self) -> UserProfile:
         """获取完整用户画像"""
         return UserProfile(
+            user_name=self.get_profile("user_name", ""),
             target_positions=self.get_profile("target_positions", []),
             target_companies=self.get_profile("target_companies", []),
             tech_stack=self.get_profile("tech_stack", []),

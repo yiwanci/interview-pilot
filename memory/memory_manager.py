@@ -286,6 +286,7 @@ class MemoryManager:
         
         return {
             "user_profile": {
+                "user_name": profile.user_name,
                 "target_positions": profile.target_positions,
                 "target_companies": profile.target_companies,
                 "tech_stack": profile.tech_stack,
@@ -305,6 +306,8 @@ class MemoryManager:
         
         # 用户背景
         profile = ctx["user_profile"]
+        if profile.get("user_name"):
+            parts.append(f"用户姓名：{profile['user_name']}")
         if profile["target_positions"]:
             parts.append(f"用户目标岗位：{', '.join(profile['target_positions'])}")
         if profile["target_companies"]:
@@ -336,13 +339,28 @@ class MemoryManager:
         """设置用户画像"""
         if target_positions:
             self.db.set_profile("target_positions", target_positions)
-            self.mem0.add_preference(f"目标岗位：{', '.join(target_positions)}")
+            self._safe_add_preference(f"目标岗位：{', '.join(target_positions)}")
         if target_companies:
             self.db.set_profile("target_companies", target_companies)
-            self.mem0.add_preference(f"目标公司：{', '.join(target_companies)}")
+            self._safe_add_preference(f"目标公司：{', '.join(target_companies)}")
         if tech_stack:
             self.db.set_profile("tech_stack", tech_stack)
-            self.mem0.add_preference(f"技术栈：{', '.join(tech_stack)}")
+            self._safe_add_preference(f"技术栈：{', '.join(tech_stack)}")
+
+    def set_user_name(self, user_name: str):
+        if not user_name:
+            return
+        self.db.set_profile("user_name", user_name)
+        self._safe_add_preference(f"用户姓名：{user_name}")
+
+    def get_user_name(self) -> str:
+        return self.db.get_profile("user_name", "")
+
+    def _safe_add_preference(self, text: str):
+        try:
+            self.mem0.add_preference(text)
+        except Exception:
+            return
     
     # ============ 辅助方法 ============
     
